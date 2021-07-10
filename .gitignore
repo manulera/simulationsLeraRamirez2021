@@ -1,0 +1,10 @@
+*.mat
+*.pdf
+*.svg
+*.tif
+scan/
+cytosim/
+*.m~
+.idea/
+*.csv
+__pycache__/
