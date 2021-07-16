@@ -62,7 +62,7 @@ class Simulation:
         self.par = par
 
         # A string containing the content of the output file (see Simulation::run)
-        self.mt_coordinates = ""
+        self.log = ""
 
         # The simulation time
         self.t = 0
@@ -107,7 +107,7 @@ class Simulation:
         ]
 
         # The initial position of the spindle pole with respect to the spindle center, we start with a spindle of 4 um
-        self.spindle_edge = 2.
+        self.half_spindle_length = 2.
 
         # Array that contains the probability of rescue in dt for each microtubule (depending on their id)
         # Updates when a microtubule is lost
@@ -172,7 +172,7 @@ class Simulation:
         total_length = 0
         for mt in self.microtubules:
             if not mt.lost:
-                total_length += mt.pos * mt.orientation + self.spindle_edge
+                total_length += mt.pos * mt.orientation + self.half_spindle_length
 
         # Divided by two because now it does not distribute on the interface
         self.prob_rescue = [1. - exp(-self.par.total_rescue / total_length / 2. * self.par.dt)]
@@ -185,18 +185,18 @@ class Simulation:
         """
         arrangement = "n0 -- n1 -- n2\n|    |    |\nn3 -- n4 -- n5\n|    |    |\nn6 -- n7 -- n8\n"
         for mt in self.microtubules:
-            neigh = mt.neighbour_id
+            neigh = mt.grid_position
             replacement = 'x' if mt.lost else str(mt.id)
             arrangement = arrangement.replace("n" + str(neigh), replacement)
         return arrangement
 
     def swapMicrotubules(self,mt_1_id,mt_2_id):
 
-        mt_1_old_neighbour_id = self.microtubules[mt_1_id].neighbour_id
-        mt_2_old_neighbour_id = self.microtubules[mt_2_id].neighbour_id
+        mt_1_old_grid_position = self.microtubules[mt_1_id].grid_position
+        mt_2_old_grid_position = self.microtubules[mt_2_id].grid_position
 
-        self.microtubules[mt_2_id].neighbour_id = mt_1_old_neighbour_id
-        self.microtubules[mt_1_id].neighbour_id = mt_2_old_neighbour_id
+        self.microtubules[mt_2_id].grid_position = mt_1_old_grid_position
+        self.microtubules[mt_1_id].grid_position = mt_2_old_grid_position
 
         if self.par.print_linkers:
             print("Swapped", mt_1_id, mt_2_id)
@@ -212,20 +212,20 @@ class Simulation:
                  |    |    |  3<->7  |    |    |
                  3 -- 4 -- 5    ->   x -- 4 -- 5
                  |    |    |         |    |    |
-                 6 -- 7 -- 8         6 -- 3 -- 8
+                 6 --[7]-- 8         6 -- 3 -- 8
             2) A neighbour of the lost microtubule would have more neighbours if it was in another position
                 Example: 5 is lost -> see verify_arrangement_case2.py
                  0 -- 1 -- x         0 -- 1 -- x
                  |    |    |  8<->6  |    |    |
-                 3 -- 4 -- 5    ->   3 -- 4 -- x
+                 3 -- 4 --[5]   ->   3 -- 4 -- x
                  |    |    |         |    |    |
-                 x -- 7 -- 8         8 -- 7 -- 6
+                 x -- 7 -- 8         8 -- 7 -- x
         :param lost_mt_id:
         :return:
         """
 
-        # We construct an array with (orientation, id, nb_neighbours, lost, neighbour_id) for each mt
-        the_array = np.array( [[mt.orientation, mt.id, mt.countNeighbours(), mt.lost, mt.neighbour_id] for mt in self.microtubules])
+        # We construct an array with (orientation, id, nb_neighbours, lost, grid_position) for each mt
+        the_array = np.array( [[mt.orientation, mt.id, mt.countNeighbours(), mt.lost, mt.grid_position] for mt in self.microtubules])
 
         # Case 1: other existing microtubules in the same orientation that have less neighbours
         case1 = np.logical_and.reduce((
@@ -287,7 +287,7 @@ class Simulation:
         # If all mts are lost, the neighbours are zero, and updateProbRescue will not do anything
         self.updateProbRescue()
 
-    def checkSpindleDisassembly(self):
+    def checkBrokenSpindle(self):
         """
         A function to check if the spindle disassembles (no contact between microtubules)
         :return:
@@ -303,14 +303,14 @@ class Simulation:
         for mt in self.microtubules:
             if mt.lost:
                 continue
-            mt_len = mt.pos * mt.orientation + self.spindle_edge
+            mt_len = mt.pos * mt.orientation + self.half_spindle_length
             if mt.orientation == 1:
                 lengths_plus1.append(mt_len)
             else:
                 lengths_minus1.append(mt_len)
 
         if len(lengths_plus1) and len(lengths_minus1) and (
-                max(lengths_plus1) + max(lengths_minus1)) > self.spindle_edge * 2:
+                max(lengths_plus1) + max(lengths_minus1)) > self.half_spindle_length * 2:
             return False
         else:
             return True
@@ -336,9 +336,9 @@ class Simulation:
         # We run 20 minutes of simulation time
         while self.t < 20.:
             self.t += self.par.dt
-            self.spindle_edge += self.par.dt * self.par.v_slide
+            self.half_spindle_length += self.par.dt * self.par.v_slide
 
-            if self.checkSpindleDisassembly():
+            if self.checkBrokenSpindle():
                 # The spindle is lost, stop the simulation
                 break
 
@@ -352,9 +352,9 @@ class Simulation:
         # Write the final timepoint
         for mt in self.microtubules:
             if not mt.lost:
-                self.mt_coordinates += '%u %.2f %.2f 3 %i\n' % (mt.id, self.t, mt.pos, mt.orientation)
+                self.log += '%u %.2f %.2f 3 %i\n' % (mt.id, self.t, mt.pos, mt.orientation)
 
-        return self.mt_coordinates
+        return self.log
 
 
 class Microtubule:
@@ -371,8 +371,9 @@ class Microtubule:
         # The id of the microtubule, which also coincides with its position in the list Simulation.microtubules
         self.id = mt_id
 
-        # Initially the microtubule id and the neighbour_id coincide, but they could switch due to rearrangement
-        self.neighbour_id = mt_id
+        # Initially the microtubule id and the grid_position coincide, but they could switch due to rearrangement
+        # Represents the position of the microtubule in the chequerboard lattice in the YZ axis
+        self.grid_position = mt_id
 
         # Reference to the simulation object, to access the parameters
         self.sim = sim
@@ -397,14 +398,14 @@ class Microtubule:
         self.lost = False
 
         # When the microtubule is created, we append it to the output of the simulation
-        self.sim.mt_coordinates += '%u %.2f %.2f -1 %i\n' % (self.id, self.sim.t, self.pos, self.orientation)
+        self.sim.log += '%u %.2f %.2f -1 %i\n' % (self.id, self.sim.t, self.pos, self.orientation)
 
     def countNeighbours(self):
 
         count = 0
         # The positions of occupied microtubules
-        occupied_pos = [mt.neighbour_id for mt in self.sim.microtubules if not mt.lost]
-        for neighbour in self.sim.neighbour_list[self.neighbour_id]:
+        occupied_pos = [mt.grid_position for mt in self.sim.microtubules if not mt.lost]
+        for neighbour in self.sim.neighbour_list[self.grid_position]:
             if neighbour in occupied_pos:
                 count += 1
 
@@ -438,7 +439,7 @@ class Microtubule:
         """
 
         # Test if microtubule depolymerises beyond the pole -> then it is lost
-        if self.pos * self.orientation < -self.sim.spindle_edge:
+        if self.pos * self.orientation < -self.sim.half_spindle_length:
             return -1
 
         # The constant probability of ase1 spindles
@@ -464,10 +465,10 @@ class Microtubule:
             self.next_catastrophe -= self.sim.par.dt
 
             # Catastrophe also occurs if the microtubules hits the pole
-            if self.next_catastrophe < 0 or (self.pos*self.orientation) > self.sim.spindle_edge:
+            if self.next_catastrophe < 0 or (self.pos*self.orientation) > self.sim.half_spindle_length:
                 self.growing = False
                 # We print the catastrophe event to the simulation output
-                self.sim.mt_coordinates += '%u %.2f %.2f 0 %i\n' % (self.id, self.sim.t, self.pos, self.orientation)
+                self.sim.log += '%u %.2f %.2f 0 %i\n' % (self.id, self.sim.t, self.pos, self.orientation)
         else:
 
             # The microtubule shrinks
@@ -483,10 +484,10 @@ class Microtubule:
                 # Manage the consequences of losing the microtubule
                 self.sim.addLostMicrotubule(self.id)
                 # We print the loss event to the simulation output
-                self.sim.mt_coordinates += '%u %.2f %.2f 2 %i\n' % (self.id, self.sim.t, self.pos, self.orientation)
+                self.sim.log += '%u %.2f %.2f 2 %i\n' % (self.id, self.sim.t, self.pos, self.orientation)
             elif prob > random():
                 self.next_catastrophe = self.sim.timeToNextCatastrophe()
                 self.growing = True
                 # We print the rescue event to the simulation output
-                self.sim.mt_coordinates += '%u %.2f %.2f 1 %i\n' % (self.id, self.sim.t, self.pos, self.orientation)
+                self.sim.log += '%u %.2f %.2f 1 %i\n' % (self.id, self.sim.t, self.pos, self.orientation)
 

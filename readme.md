@@ -41,10 +41,10 @@ See `Simulation::run`
 
 ### Managing rearrangements
 
-This can be a bit confusing. Essentially every microtubule has an `id` and a `neighbour_id` that initially match. The `neighbour_id` corresponds to the position on the spindle:
+This can be a bit confusing. Essentially every microtubule has an `id` and a `grid_position` that initially match. The `grid_position` corresponds to the position on the ZY axis:
 
 ```
-Neighbour ids:
+Grid positions:
 	0 -- 1 -- 2
 	|    |    |
 	3 -- 4 -- 5
@@ -52,10 +52,10 @@ Neighbour ids:
 	6 -- 7 -- 8
 ```
 
-`Simulation::neighbour_list` is a list used to know the `neighbour_id` of all neighbours of a microtubule.
-Each position in the list corresponds to a `neighbour_id`, and contains the `neighbour_id` of neighbouring microtubules.
+`Simulation::neighbour_list` is a list used to know the `grid_position` of all neighbours of a microtubule.
+Each position in the list corresponds to a `grid_position`, and contains the `grid_position` of neighbouring microtubules.
 
-For instance, the `neighbour_id` of neighbours of a microtubule with `neighbour_id=4` are `[1,3,5,7]`. This is why `Simulation::neighbour_list` is:
+For instance, the `grid_position` of neighbours of a microtubule with `grid_position=4` are `[1,3,5,7]`. This is why `Simulation::neighbour_list` is:
 
 ```python
 self.neighbour_list = [
@@ -71,7 +71,7 @@ self.neighbour_list = [
 ]
 ```
 
-When a microtubule is lost, there can be a rearrangement to maximize the number of neighbours. See the call to `Simulation::performRearrangement` in `Simulation::addLostMicrotubule`. In a rearrangement, the `neighbour_id` of two microtubules are swapped.
+When a microtubule is lost, there can be a rearrangement to maximize the number of neighbours. See the call to `Simulation::performRearrangement` in `Simulation::addLostMicrotubule`. In a rearrangement, the `grid_position` of two microtubules are swapped.
 
 ## How to run the simulation
 
